@@ -1,0 +1,139 @@
+---
+title: "Project 1 - Phase 1"
+author: "Sonia Grzywacz, Piotr Walczak"
+date: "3 listopada 2016"
+output: pdf_document
+---
+
+##Project 1
+
+**Introduction**
+
+Build a classifier that predict the number of shares in social networks (popularity).
+Use dataset from _https://archive.ics.uci.edu/ml/datasets/Online+News+Popularity_
+or take part in a contenst
+_https://www.kaggle.com/c/santander-product-recommendation_
+
+**The Goal**
+
+The goal of this project is to compare performances of different classifiers and building a final classifier that can be used in predicting popularity of online news.
+
+**Phases**
+
+After each phase you should create a single report (e.g. with the use of knitr). This report will be presented during classes and scored.
+In the first phase you should build two classifiers and compare their performances.
+In the second phase you should try any number of classifier you wish in order to create the best possible classifier. Report from this phase shall have not more than 10 pages (but may be shorter as well).
+In the third phase you should crease a brief summary (up to 3 pages) with description and validation of your classifier.
+
+##Phase 1
+
+We decided to use dataset from website _https://archive.ics.uci.edu/ml/datasets/Online+News+Popularity_.
+
+```{r, message=FALSE}
+library(caret)
+library(party)
+```
+
+The target in Online News Popularity Data Set is last variable - Numbers of shares.
+
+```{r, message=FALSE, fig.align='center'}
+ONP <- read.table("OnlineNewsPopularity.csv", header=TRUE, sep=",")
+summary(ONP$shares)
+boxplot(ONP$shares, horizontal=TRUE, col = "green", main="Numbers of shares in Online News Popularity")
+```
+
+As we can see in above boxplot, our data are accumulated in the lowe values. We cut out outliers and will focus on a smaller range of data. In _Predicting and Evaluating the Popularity of Online News_ He Ren and Quan Yang choose their range to 0-1400 but in our report we take shares in that range.
+
+```{r, message=FALSE, fig.align='center'}
+ONP <- subset(ONP, shares < 1400)
+summary(ONP$shares)
+boxplot(ONP$shares, horizontal=TRUE, col = "green", main="Numbers of shares in modified dataset")
+```
+
+By taking subset our dataset we reduced the number of observations from 39644 to 18490.
+
+Now we can remove Zero- and Near Zero-Variances predictors using function _nearZeroVar_. _nearZeroVar_ return us the postitions of the variables that could be problematic.
+
+```{r, message=FALSE, fig.align='center'}
+nzv <- nearZeroVar(ONP)
+ONP <- ONP[ , -nzv]
+```
+
+This way we reduced the number of variables from 61 to 55.
+
+In the next step we want to pre-process our data set. Using option _"ranges"_ we scale the data to the interval between zero and one.
+
+```{r, message=FALSE, fig.align='center'}
+preProcValues <- preProcess(ONP, method = c("range"))
+NONP <- predict(preProcValues, ONP)
+```
+
+Now we create 75/25% split of our data and we divide into two subsets: training and testing.
+
+```{r, message=FALSE, fig.align='center'}
+set.seed(1313)
+indxTrain <- createDataPartition(NONP$shares, p = 0.75, list = FALSE)
+ONPTrain <- NONP[ indxTrain,]
+ONPTest  <- NONP[-indxTrain,]
+```
+
+##kNN method
+
+First classifier is k-nearest neighbors method. 
+
+Let's find an optimal _k_:
+
+```{r, message=FALSE, fig.align='center'}
+tuneK <- 1:100
+performance <- sapply(tuneK, function(k) {
+  knnFit <- knn3(shares ~ weekday_is_monday+weekday_is_tuesday, data = ONPTrain, k=k)
+  tab <- table(true = ONPTest$shares,
+               predict = predict(knnFit,ONPTest, type = "class"))
+  sum(diag(tab)) / sum(tab)
+})
+
+k2 = which.max(performance)
+
+df <- data.frame(tuneK, performance)
+
+ggplot(df, aes(tuneK, performance)) +
+  geom_point() +
+  geom_smooth(se=FALSE, span=0.1, size=2) +
+  theme_bw()
+```
+
+And use it in knn3 method:
+
+```{r, message=FALSE, fig.align='center'}
+knnFit <- knn3(shares ~ weekday_is_monday+weekday_is_tuesday, data = ONPTrain, k=k2)
+pred <- predict(knnFit, ONPTest, type = "class")
+tab <- table(true = ONPTest$shares, predicted = pred)
+sum(diag(tab)) / sum(tab)
+```
+
+##Decision tree
+
+Second classifier is decision tree. We use _party_ package, and _ctree_ to fit a tree. 
+
+```{r, message=FALSE, fig.align='center'}
+diabTree <- ctree(shares ~ weekday_is_monday+weekday_is_tuesday, data = ONPTrain)
+diabTree
+plot(diabTree)
+```
+
+We use _predict()_ to classify data based on fitting model.
+
+```{r, message=FALSE, fig.align='center'}
+table(real = ONPTrain$shares, predicted = predict(diabTree))
+```
+
+And we add some control parameters - in this case, we use _mincriterion_, _minsplit_ and _minbucket_.
+
+```{r, message=FALSE, fig.align='center'}
+diabTree <- ctree(shares ~ weekday_is_monday+weekday_is_tuesday, data=ONPTrain,
+                  controls = ctree_control(mincriterion-0.1, minsplit=25, minbucket=25))
+diabTree
+plot(diabTree)
+```
+
+Unfortunately, there is an error occurred, we are not able to remove. During finding optimal _k_ there is an invalid number of intervals. We tried to change knn3 parameters, but it didn't work. 
